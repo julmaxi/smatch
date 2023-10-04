@@ -147,7 +147,10 @@ def compute_pool(instance1, attribute1, relation1,
 
     """
     candidate_mapping = []
-    weight_dict = {}
+    from collections import defaultdict
+    weight_dict = defaultdict(
+        lambda: {-1: 0}
+    )
     for instance1_item in instance1:
         # each candidate mapping is a set of node indices
         candidate_mapping.append(set())
@@ -162,11 +165,7 @@ def compute_pool(instance1, attribute1, relation1,
                     candidate_mapping[node1_index].add(node2_index)
                     node_pair = (node1_index, node2_index)
                     # use -1 as key in weight_dict for instance triples and attribute triples
-                    if node_pair in weight_dict:
-                        weight_dict[node_pair][-1] += 1
-                    else:
-                        weight_dict[node_pair] = {}
-                        weight_dict[node_pair][-1] = 1
+                    weight_dict[node_pair][-1] += 1
     if doattribute:
         for attribute1_item in attribute1:
             for attribute2_item in attribute2:
@@ -177,55 +176,39 @@ def compute_pool(instance1, attribute1, relation1,
                     node2_index = int(attribute2_item[1][len(prefix2):])
                     candidate_mapping[node1_index].add(node2_index)
                     node_pair = (node1_index, node2_index)
-                    # use -1 as key in weight_dict for instance triples and attribute triples
-                    if node_pair in weight_dict:
-                        weight_dict[node_pair][-1] += 1
-                    else:
-                        weight_dict[node_pair] = {}
-                        weight_dict[node_pair][-1] = 1
+                    weight_dict[node_pair][-1] += 1
     if dorelation:
-        for relation1_item in relation1:
-            for relation2_item in relation2:
-                # if both relation share the same name
-                if normalize(relation1_item[0]) == normalize(relation2_item[0]):
-                    node1_index_amr1 = int(relation1_item[1][len(prefix1):])
-                    node1_index_amr2 = int(relation2_item[1][len(prefix2):])
-                    node2_index_amr1 = int(relation1_item[2][len(prefix1):])
-                    node2_index_amr2 = int(relation2_item[2][len(prefix2):])
+        import collections
+        connections1 = collections.defaultdict(collections.Counter)
+        connections2 = collections.defaultdict(collections.Counter)
+
+        for relation in relation1:
+            connections1[normalize(relation[0])].update([(int(relation[1][len(prefix1):]), int(relation[2][len(prefix1):]))])
+        for relation in relation2:
+            connections2[normalize(relation[0])].update([(int(relation[1][len(prefix2):]), int(relation[2][len(prefix2):]))])
+
+        for rel_name, rel_pairs_1 in connections1.items():
+            rel_pairs_2 = connections2.get(rel_name, {})
+            for (src_1, tgt_1), cnt_1 in rel_pairs_1.items():
+
+
+                for (src_2, tgt_2), cnt_2 in rel_pairs_2.items():
+                    node_pair_src = (src_1, src_2)
+                    node_pair_tgt = (tgt_1, tgt_2)
+                    if src_1 > tgt_1:
+                        node_pair_src, node_pair_tgt = node_pair_tgt, node_pair_src
+
                     # add mapping between two nodes
-                    candidate_mapping[node1_index_amr1].add(node1_index_amr2)
-                    candidate_mapping[node2_index_amr1].add(node2_index_amr2)
-                    node_pair1 = (node1_index_amr1, node1_index_amr2)
-                    node_pair2 = (node2_index_amr1, node2_index_amr2)
-                    if node_pair2 != node_pair1:
-                        # update weight_dict weight. Note that we need to update both entries for future search
-                        # i.e weight_dict[node_pair1][node_pair2]
-                        #     weight_dict[node_pair2][node_pair1]
-                        if node1_index_amr1 > node2_index_amr1:
-                            # swap node_pair1 and node_pair2
-                            node_pair1 = (node2_index_amr1, node2_index_amr2)
-                            node_pair2 = (node1_index_amr1, node1_index_amr2)
-                        if node_pair1 in weight_dict:
-                            if node_pair2 in weight_dict[node_pair1]:
-                                weight_dict[node_pair1][node_pair2] += 1
-                            else:
-                                weight_dict[node_pair1][node_pair2] = 1
-                        else:
-                            weight_dict[node_pair1] = {-1: 0, node_pair2: 1}
-                        if node_pair2 in weight_dict:
-                            if node_pair1 in weight_dict[node_pair2]:
-                                weight_dict[node_pair2][node_pair1] += 1
-                            else:
-                                weight_dict[node_pair2][node_pair1] = 1
-                        else:
-                            weight_dict[node_pair2] = {-1: 0, node_pair1: 1}
+                    candidate_mapping[src_1].add(src_2)
+                    candidate_mapping[tgt_1].add(tgt_2)
+                    if node_pair_tgt != node_pair_src:
+                        weight_dict[node_pair_src][node_pair_tgt] = min(cnt_1, cnt_2)
+                        weight_dict[node_pair_tgt][node_pair_src] = min(cnt_1, cnt_2)
                     else:
                         # two node pairs are the same. So we only update weight_dict once.
                         # this generally should not happen.
-                        if node_pair1 in weight_dict:
-                            weight_dict[node_pair1][-1] += 1
-                        else:
-                            weight_dict[node_pair1] = {-1: 1}
+                        if node_pair_src in weight_dict:
+                            weight_dict[node_pair_src][-1] += min(cnt_1, cnt_2)
     return candidate_mapping, weight_dict
 
 
@@ -646,6 +629,7 @@ def generate_amr_lines(f1, f2):
     while True:
         cur_amr1 = amr.AMR.get_amr_line(f1)
         cur_amr2 = amr.AMR.get_amr_line(f2)
+        print(cur_amr1)
         if not cur_amr1 and not cur_amr2:
             pass
         elif not cur_amr1:
